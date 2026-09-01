@@ -1,21 +1,35 @@
 import {
-  Dashboard,
   DashboardValidationError,
-  DashboardValidationIssue,
-  DashboardWidget,
-  parseDashboard,
-  validateDashboard as validateModelDashboard
+  type DashboardClientConfig,
+  type DashboardInstance,
+  type DashboardInstanceScopeType,
+  type DashboardValidationIssue,
+  type DashboardWidget,
+  parseDashboardInstance,
+  validateDashboardInstance as validateModelDashboardInstance
 } from "./model.js";
 
 export const DASHBOARD_CONTRACT = "openhdo.dashboard" as const;
 export const DASHBOARD_CONTRACT_VERSION = 1 as const;
 export const DASHBOARD_MEDIA_TYPE = "application/vnd.openhdo.dashboard.v1+json" as const;
 
-export interface DashboardDto {
+export interface DashboardInstanceDto {
   readonly id: string;
   readonly name: string;
+  readonly scope: DashboardInstanceScopeDto;
+  readonly client: DashboardClientConfigDto;
   readonly defaultPageId: string;
   readonly pages: readonly DashboardPageDto[];
+}
+
+export type DashboardInstanceScopeDto =
+  | { readonly type: "global" }
+  | { readonly type: Exclude<DashboardInstanceScopeType, "global">; readonly id: string };
+
+export interface DashboardClientConfigDto {
+  readonly renderMode: DashboardClientConfig["renderMode"];
+  readonly theme: DashboardClientConfig["theme"];
+  readonly showPageNavigation: boolean;
 }
 
 export interface DashboardPageDto {
@@ -59,17 +73,17 @@ export interface DashboardEnvelope<TPayload> {
   readonly payload: TPayload;
 }
 
-export interface DashboardGetRequestPayload {
-  readonly type: "dashboard.get";
-  readonly dashboardId: string;
+export interface DashboardInstanceGetRequestPayload {
+  readonly type: "dashboard.instance.get";
+  readonly instanceId: string;
 }
 
-export type DashboardGetRequestDto = DashboardEnvelope<DashboardGetRequestPayload>;
-export type DashboardRequestDto = DashboardGetRequestDto;
+export type DashboardInstanceGetRequestDto = DashboardEnvelope<DashboardInstanceGetRequestPayload>;
+export type DashboardRequestDto = DashboardInstanceGetRequestDto;
 
-export interface DashboardSnapshotPayload {
-  readonly type: "dashboard.snapshot";
-  readonly dashboard: DashboardDto;
+export interface DashboardInstanceSnapshotPayload {
+  readonly type: "dashboard.instance.snapshot";
+  readonly instance: DashboardInstanceDto;
 }
 
 export type DashboardErrorCode = "invalid_request" | "not_found" | "internal";
@@ -83,19 +97,21 @@ export interface DashboardErrorPayload {
   };
 }
 
-export type DashboardResponsePayload = DashboardSnapshotPayload | DashboardErrorPayload;
+export type DashboardResponsePayload = DashboardInstanceSnapshotPayload | DashboardErrorPayload;
 export type DashboardResponseDto = DashboardEnvelope<DashboardResponsePayload>;
 
-export function dashboardToDto(dashboard: Dashboard): DashboardDto {
-  return dashboardToDtoValue(parseDashboard(dashboard));
+export function dashboardInstanceToDto(instance: DashboardInstance): DashboardInstanceDto {
+  return dashboardInstanceToDtoValue(parseDashboardInstance(instance));
 }
 
-function dashboardToDtoValue(dashboard: Dashboard): DashboardDto {
+function dashboardInstanceToDtoValue(instance: DashboardInstance): DashboardInstanceDto {
   return {
-    id: dashboard.id,
-    name: dashboard.name,
-    defaultPageId: dashboard.defaultPageId,
-    pages: dashboard.pages.map((page) => ({
+    id: instance.id,
+    name: instance.name,
+    scope: { ...instance.scope },
+    client: { ...instance.client },
+    defaultPageId: instance.defaultPageId,
+    pages: instance.pages.map((page) => ({
       id: page.id,
       slug: page.slug,
       title: page.title,
@@ -111,31 +127,31 @@ function dashboardToDtoValue(dashboard: Dashboard): DashboardDto {
   };
 }
 
-export function dashboardFromDto(input: unknown): Dashboard {
-  return parseDashboard(input);
+export function dashboardInstanceFromDto(input: unknown): DashboardInstance {
+  return parseDashboardInstance(input);
 }
 
-export function createDashboardGetRequest(
+export function createDashboardInstanceGetRequest(
   correlationId: string,
-  dashboardId: string
-): DashboardGetRequestDto {
+  instanceId: string
+): DashboardInstanceGetRequestDto {
   return parseDashboardRequest({
     contract: DASHBOARD_CONTRACT,
     version: DASHBOARD_CONTRACT_VERSION,
     correlationId,
-    payload: { type: "dashboard.get", dashboardId }
+    payload: { type: "dashboard.instance.get", instanceId }
   });
 }
 
-export function createDashboardSnapshotResponse(
+export function createDashboardInstanceSnapshotResponse(
   correlationId: string,
-  dashboard: Dashboard
+  instance: DashboardInstance
 ): DashboardResponseDto {
   return parseDashboardResponse({
     contract: DASHBOARD_CONTRACT,
     version: DASHBOARD_CONTRACT_VERSION,
     correlationId,
-    payload: { type: "dashboard.snapshot", dashboard: dashboardToDto(dashboard) }
+    payload: { type: "dashboard.instance.snapshot", instance: dashboardInstanceToDto(instance) }
   });
 }
 
@@ -150,11 +166,11 @@ export function parseDashboardRequest(input: unknown): DashboardRequestDto {
   if (!isRecord(payload)) {
     issues.push({ path: "$.payload", message: "must be an object" });
   } else {
-    rejectUnknownKeys(payload, ["type", "dashboardId"], "$.payload", issues);
-    if (payload.type !== "dashboard.get") {
-      issues.push({ path: "$.payload.type", message: "must be dashboard.get" });
+    rejectUnknownKeys(payload, ["type", "instanceId"], "$.payload", issues);
+    if (payload.type !== "dashboard.instance.get") {
+      issues.push({ path: "$.payload.type", message: "must be dashboard.instance.get" });
     }
-    requiredString(payload.dashboardId, "$.payload.dashboardId", issues);
+    requiredString(payload.instanceId, "$.payload.instanceId", issues);
   }
   if (issues.length > 0) {
     throw new DashboardValidationError(issues);
@@ -163,7 +179,7 @@ export function parseDashboardRequest(input: unknown): DashboardRequestDto {
   const payloadValue = payload as Record<string, unknown>;
   return {
     ...envelope,
-    payload: { type: "dashboard.get", dashboardId: payloadValue.dashboardId as string }
+    payload: { type: "dashboard.instance.get", instanceId: payloadValue.instanceId as string }
   };
 }
 
@@ -177,25 +193,25 @@ export function parseDashboardResponse(input: unknown): DashboardResponseDto {
   const payload = envelope.payload;
   if (!isRecord(payload)) {
     issues.push({ path: "$.payload", message: "must be an object" });
-  } else if (payload.type === "dashboard.snapshot") {
-    rejectUnknownKeys(payload, ["type", "dashboard"], "$.payload", issues);
-    issues.push(...validateDashboard(payload.dashboard, "$.payload.dashboard"));
+  } else if (payload.type === "dashboard.instance.snapshot") {
+    rejectUnknownKeys(payload, ["type", "instance"], "$.payload", issues);
+    issues.push(...validateDashboardInstance(payload.instance, "$.payload.instance"));
   } else if (payload.type === "dashboard.error") {
     validateErrorPayload(payload, "$.payload", issues);
   } else {
-    issues.push({ path: "$.payload.type", message: "must be dashboard.snapshot or dashboard.error" });
+    issues.push({ path: "$.payload.type", message: "must be dashboard.instance.snapshot or dashboard.error" });
   }
   if (issues.length > 0) {
     throw new DashboardValidationError(issues);
   }
 
   const payloadValue = payload as Record<string, unknown>;
-  if (payloadValue.type === "dashboard.snapshot") {
+  if (payloadValue.type === "dashboard.instance.snapshot") {
     return {
       ...envelope,
       payload: {
-        type: "dashboard.snapshot",
-        dashboard: dashboardToDtoValue(parseDashboard(payloadValue.dashboard))
+        type: "dashboard.instance.snapshot",
+        instance: dashboardInstanceToDtoValue(parseDashboardInstance(payloadValue.instance))
       }
     };
   }
@@ -287,18 +303,11 @@ function rejectUnknownKeys(
   }
 }
 
-function validateDashboard(
+function validateDashboardInstance(
   input: unknown,
   path: string
 ): readonly DashboardValidationIssue[] {
-  return validateDashboardValue(input, path);
-}
-
-function validateDashboardValue(
-  input: unknown,
-  path: string
-): readonly DashboardValidationIssue[] {
-  const issues = validateModelDashboard(input);
+  const issues = validateModelDashboardInstance(input);
   return issues.map((issue) => ({ ...issue, path: issue.path === "$" ? path : `${path}${issue.path.slice(1)}` }));
 }
 

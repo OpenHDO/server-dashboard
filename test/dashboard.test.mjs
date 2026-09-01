@@ -4,19 +4,21 @@ import {
   DASHBOARD_CONTRACT,
   DASHBOARD_CONTRACT_VERSION,
   DashboardValidationError,
-  createDashboardGetRequest,
-  createDashboardSnapshotResponse,
-  dashboardFromDto,
-  dashboardToDto,
-  parseDashboard,
+  createDashboardInstanceGetRequest,
+  createDashboardInstanceSnapshotResponse,
+  dashboardInstanceFromDto,
+  dashboardInstanceToDto,
+  parseDashboardInstance,
   parseDashboardRequest,
   parseDashboardResponse,
-  validateDashboard
+  validateDashboardInstance
 } from "../dist/index.js";
 
-const dashboardDto = {
-  id: "home",
-  name: "Home",
+const dashboardInstanceDto = {
+  id: "main",
+  name: "Main dashboard",
+  scope: { type: "global" },
+  client: { renderMode: "responsive", theme: "system", showPageNavigation: true },
   defaultPageId: "overview",
   pages: [
     {
@@ -37,16 +39,38 @@ const dashboardDto = {
   ]
 };
 
-test("parses a valid dashboard and keeps device state outside the model", () => {
-  const model = parseDashboard(dashboardDto);
+test("parses multiple instances with independent scope and client rendering config", () => {
+  const main = parseDashboardInstance(dashboardInstanceDto);
+  const wallPanel = parseDashboardInstance({
+    ...dashboardInstanceDto,
+    id: "hallway-wall-panel",
+    name: "Hallway wall panel",
+    scope: { type: "panel", id: "hallway-panel" },
+    client: { renderMode: "wall-panel", theme: "dark", showPageNavigation: false }
+  });
 
-  assert.equal(model.pages[0].widgets[0].source.id, "thermostat");
-  assert.equal("state" in model.pages[0].widgets[0], false);
-  assert.deepEqual(dashboardToDto(model), dashboardDto);
+  assert.equal(main.scope.type, "global");
+  assert.equal(wallPanel.id, "hallway-wall-panel");
+  assert.deepEqual(wallPanel.scope, { type: "panel", id: "hallway-panel" });
+  assert.deepEqual(wallPanel.client, {
+    renderMode: "wall-panel",
+    theme: "dark",
+    showPageNavigation: false
+  });
+  for (const scope of [
+    { type: "room", id: "living-room" },
+    { type: "setup", id: "night-mode" }
+  ]) {
+    const instance = parseDashboardInstance({ ...dashboardInstanceDto, id: scope.id, scope });
+    assert.deepEqual(instance.scope, scope);
+  }
+  assert.equal("state" in main.pages[0].widgets[0], false);
+  assert.deepEqual(dashboardInstanceToDto(main), dashboardInstanceDto);
 });
 
-test("reports structural, uniqueness, and placement validation issues", () => {
-  const invalid = structuredClone(dashboardDto);
+test("reports structural, scope, uniqueness, and placement validation issues", () => {
+  const invalid = structuredClone(dashboardInstanceDto);
+  invalid.scope = { type: "room" };
   invalid.pages[0].slug = "Not a slug";
   invalid.pages[0].widgets.push({
     ...invalid.pages[0].widgets[0],
@@ -55,33 +79,38 @@ test("reports structural, uniqueness, and placement validation issues", () => {
     state: { value: 21 }
   });
 
-  const issues = validateDashboard(invalid);
+  const issues = validateDashboardInstance(invalid);
+  assert.ok(issues.some((issue) => issue.path === "$.scope.id"));
   assert.ok(issues.some((issue) => issue.path === "$.pages[0].slug"));
   assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[1].id"));
   assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[1].state" && issue.message.includes("v1 contract")));
   assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[1].placement"));
-  assert.throws(() => parseDashboard(invalid), DashboardValidationError);
+  assert.throws(() => parseDashboardInstance(invalid), DashboardValidationError);
 });
 
-test("uses a versioned envelope and preserves correlation across request/reply", () => {
-  const request = createDashboardGetRequest("trace-42", "home");
+test("uses a versioned instance envelope and preserves correlation across request/reply", () => {
+  const request = createDashboardInstanceGetRequest("trace-42", "main");
   assert.deepEqual(request, {
     contract: DASHBOARD_CONTRACT,
     version: DASHBOARD_CONTRACT_VERSION,
     correlationId: "trace-42",
-    payload: { type: "dashboard.get", dashboardId: "home" }
+    payload: { type: "dashboard.instance.get", instanceId: "main" }
   });
   assert.deepEqual(parseDashboardRequest(request), request);
 
-  const response = createDashboardSnapshotResponse(request.correlationId, dashboardFromDto(dashboardDto));
+  const response = createDashboardInstanceSnapshotResponse(
+    request.correlationId,
+    dashboardInstanceFromDto(dashboardInstanceDto)
+  );
   assert.equal(response.correlationId, request.correlationId);
-  assert.equal(response.payload.type, "dashboard.snapshot");
+  assert.equal(response.payload.type, "dashboard.instance.snapshot");
+  assert.equal(response.payload.instance.id, "main");
   assert.deepEqual(parseDashboardResponse(response), response);
 });
 
-test("rejects an unsupported contract version at the server boundary", () => {
+test("rejects an unsupported contract version at the client boundary", () => {
   assert.throws(
-    () => parseDashboardRequest({ ...createDashboardGetRequest("trace-42", "home"), version: 2 }),
+    () => parseDashboardRequest({ ...createDashboardInstanceGetRequest("trace-42", "main"), version: 2 }),
     (error) => error instanceof DashboardValidationError && error.issues.some((issue) => issue.path === "$.version")
   );
 });
@@ -93,7 +122,7 @@ test("accepts a validated error reply using the same correlation envelope", () =
     correlationId: "trace-42",
     payload: {
       type: "dashboard.error",
-      error: { code: "not_found", message: "Dashboard home was not found" }
+      error: { code: "not_found", message: "Dashboard instance main was not found" }
     }
   };
 

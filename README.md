@@ -1,25 +1,33 @@
-# OpenHDO Dashboard
+# OpenHDO Client Dashboard
 
-`server-dashboard` is the server-side module for configurable dashboards. It
-owns pages, layouts, navigation, widgets, visibility rules, and device/flow
-control views.
+`server-dashboard` is a reusable client-dashboard module for configurable
+dashboard instances. A host can serve independent instances such as the main
+dashboard, an embedded wall panel, a room dashboard, or a setup-specific
+dashboard.
 
 ## Boundary
 
-The module contributes a small explicit surface to `openhdo-server`: settings,
-health, permissions, entities, and panel routes. It does not own device state,
-automation execution, authentication, or a second persistence model.
+The module owns client-facing dashboard composition and rendering configuration:
+instance scope, client render mode/theme, pages, grid layouts, navigation, and
+widgets. Widget sources are references to server-owned devices or flows.
+
+The server owns canonical device state, settings/admin, authentication,
+authorization, persistence, and orchestration/execution. This module does not
+duplicate those concerns or embed a UI component library.
 
 ## Status
 
-The repository now contains the versioned `v1` contract and a small validated
-model. Build with `npm run build` and run the focused boundary checks with
-`npm test`.
+The repository contains the versioned `v1` contract and a small validated
+`DashboardInstance` model. Build with `npm run build` and run the focused
+boundary checks with `npm test`.
 
-The public entry point is `src/index.ts`. It exposes pages, grid layouts, and
-widgets whose `source` is only a device/flow reference; current device state
-stays in the server-owned device module. Wire messages use a versioned envelope
-with a correlation ID for request/reply tracing.
+The public entry point is `src/index.ts`. Wire messages use a versioned
+envelope with a correlation ID for request/reply tracing:
+
+- `dashboard.instance.get` requests one instance by `instanceId`;
+- `dashboard.instance.snapshot` returns its client configuration and pages; and
+- `dashboard.error` reports a validated failure without exposing server state.
 
 See the [project architecture](https://github.com/OpenHDO/about/blob/main/ARCHITECTURE.md)
-and [server contracts](https://github.com/OpenHDO/server/tree/master/contracts/v1).
+and [server contracts](https://github.com/OpenHDO/server/tree/master/contracts/v1)
+for the host-side state and orchestration boundary.

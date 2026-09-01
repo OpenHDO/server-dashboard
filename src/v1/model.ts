@@ -1,14 +1,35 @@
+export const DASHBOARD_INSTANCE_SCOPES = ["global", "panel", "room", "setup"] as const;
+export type DashboardInstanceScopeType = (typeof DASHBOARD_INSTANCE_SCOPES)[number];
+
+export const DASHBOARD_RENDER_MODES = ["responsive", "embedded", "wall-panel"] as const;
+export type DashboardRenderMode = (typeof DASHBOARD_RENDER_MODES)[number];
+
+export const DASHBOARD_THEMES = ["system", "light", "dark"] as const;
+export type DashboardTheme = (typeof DASHBOARD_THEMES)[number];
+
 export const WIDGET_KINDS = ["value", "control"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 export const WIDGET_SOURCES = ["device", "flow"] as const;
 export type WidgetSourceType = (typeof WIDGET_SOURCES)[number];
 
-export interface Dashboard {
+export interface DashboardInstance {
   readonly id: string;
   readonly name: string;
+  readonly scope: DashboardInstanceScope;
+  readonly client: DashboardClientConfig;
   readonly defaultPageId: string;
   readonly pages: readonly DashboardPage[];
+}
+
+export type DashboardInstanceScope =
+  | { readonly type: "global" }
+  | { readonly type: Exclude<DashboardInstanceScopeType, "global">; readonly id: string };
+
+export interface DashboardClientConfig {
+  readonly renderMode: DashboardRenderMode;
+  readonly theme: DashboardTheme;
+  readonly showPageNavigation: boolean;
 }
 
 export interface DashboardPage {
@@ -68,15 +89,17 @@ const MAX_WIDGET_COUNT = 100;
 const MAX_TITLE_LENGTH = 160;
 const MAX_PATH_LENGTH = 160;
 
-export function validateDashboard(input: unknown): readonly DashboardValidationIssue[] {
+export function validateDashboardInstance(input: unknown): readonly DashboardValidationIssue[] {
   const issues: DashboardValidationIssue[] = [];
   if (!isRecord(input)) {
     return [{ path: "$", message: "must be an object" }];
   }
 
-  rejectUnknownKeys(input, ["id", "name", "defaultPageId", "pages"], "$", issues);
+  rejectUnknownKeys(input, ["id", "name", "scope", "client", "defaultPageId", "pages"], "$", issues);
   requiredString(input.id, "$.id", MAX_ID_LENGTH, issues);
   requiredString(input.name, "$.name", MAX_NAME_LENGTH, issues);
+  validateScope(input.scope, "$.scope", issues);
+  validateClient(input.client, "$.client", issues);
   const defaultPageId = requiredString(input.defaultPageId, "$.defaultPageId", MAX_ID_LENGTH, issues);
 
   const pages = input.pages;
@@ -120,8 +143,8 @@ export function validateDashboard(input: unknown): readonly DashboardValidationI
   return issues;
 }
 
-export function parseDashboard(input: unknown): Dashboard {
-  const issues = validateDashboard(input);
+export function parseDashboardInstance(input: unknown): DashboardInstance {
+  const issues = validateDashboardInstance(input);
   if (issues.length > 0) {
     throw new DashboardValidationError(issues);
   }
@@ -130,6 +153,8 @@ export function parseDashboard(input: unknown): Dashboard {
   return {
     id: value.id as string,
     name: value.name as string,
+    scope: toScope(value.scope as Record<string, unknown>),
+    client: toClient(value.client as Record<string, unknown>),
     defaultPageId: value.defaultPageId as string,
     pages: (value.pages as readonly Record<string, unknown>[]).map((page) => ({
       id: page.id as string,
@@ -153,6 +178,33 @@ export function parseDashboard(input: unknown): Dashboard {
       }))
     }))
   };
+}
+
+function validateScope(input: unknown, path: string, issues: DashboardValidationIssue[]): void {
+  if (!isRecord(input)) {
+    issues.push({ path, message: "must be an object" });
+    return;
+  }
+  rejectUnknownKeys(input, ["type", "id"], path, issues);
+  const scopeType = enumValue(input.type, DASHBOARD_INSTANCE_SCOPES, `${path}.type`, issues);
+  if (scopeType === "global" && input.id !== undefined) {
+    issues.push({ path: `${path}.id`, message: "must be omitted for a global instance" });
+  } else if (scopeType !== undefined && scopeType !== "global") {
+    requiredString(input.id, `${path}.id`, MAX_ID_LENGTH, issues);
+  }
+}
+
+function validateClient(input: unknown, path: string, issues: DashboardValidationIssue[]): void {
+  if (!isRecord(input)) {
+    issues.push({ path, message: "must be an object" });
+    return;
+  }
+  rejectUnknownKeys(input, ["renderMode", "theme", "showPageNavigation"], path, issues);
+  enumValue(input.renderMode, DASHBOARD_RENDER_MODES, `${path}.renderMode`, issues);
+  enumValue(input.theme, DASHBOARD_THEMES, `${path}.theme`, issues);
+  if (typeof input.showPageNavigation !== "boolean") {
+    issues.push({ path: `${path}.showPageNavigation`, message: "must be a boolean" });
+  }
 }
 
 function validateLayout(input: unknown, path: string, issues: DashboardValidationIssue[]): void {
@@ -241,6 +293,22 @@ function validateSource(input: unknown, path: string, issues: DashboardValidatio
   if (input.path !== undefined) {
     requiredString(input.path, `${path}.path`, MAX_PATH_LENGTH, issues);
   }
+}
+
+function toScope(input: Record<string, unknown>): DashboardInstanceScope {
+  const type = input.type as DashboardInstanceScopeType;
+  if (type === "global") {
+    return { type };
+  }
+  return { type, id: input.id as string };
+}
+
+function toClient(input: Record<string, unknown>): DashboardClientConfig {
+  return {
+    renderMode: input.renderMode as DashboardRenderMode,
+    theme: input.theme as DashboardTheme,
+    showPageNavigation: input.showPageNavigation as boolean
+  };
 }
 
 function toSource(input: Record<string, unknown>): DashboardWidgetSource {

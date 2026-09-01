@@ -4,11 +4,20 @@ import {
   DASHBOARD_CONTRACT,
   DASHBOARD_CONTRACT_VERSION,
   DashboardValidationError,
+  LightValidationError,
   createDashboardInstanceGetRequest,
   createDashboardInstanceSnapshotResponse,
+  createDashboardLightActionCommand,
+  createDashboardLightStateEvent,
   dashboardInstanceFromDto,
   dashboardInstanceToDto,
+  lightActionFromDto,
+  lightActionToDto,
+  lightStateFromDto,
+  lightStateToDto,
   parseDashboardInstance,
+  parseDashboardLightActionCommand,
+  parseDashboardLightStateEvent,
   parseDashboardRequest,
   parseDashboardResponse,
   validateDashboardInstance
@@ -33,6 +42,13 @@ const dashboardInstanceDto = {
           kind: "value",
           placement: { column: 0, row: 0, columnSpan: 4, rowSpan: 2 },
           source: { type: "device", id: "thermostat", path: "temperature" }
+        },
+        {
+          id: "living-room-light",
+          title: "Living room light",
+          kind: "light",
+          placement: { column: 4, row: 0, columnSpan: 4, rowSpan: 2 },
+          binding: { deviceId: "living-room-light", capability: "light" }
         }
       ]
     }
@@ -57,6 +73,10 @@ test("parses multiple instances with independent scope and client rendering conf
     theme: "dark",
     showPageNavigation: false
   });
+  assert.deepEqual(main.pages[0].widgets[1].binding, {
+    deviceId: "living-room-light",
+    capability: "light"
+  });
   for (const scope of [
     { type: "room", id: "living-room" },
     { type: "setup", id: "night-mode" }
@@ -71,6 +91,7 @@ test("parses multiple instances with independent scope and client rendering conf
 test("reports structural, scope, uniqueness, and placement validation issues", () => {
   const invalid = structuredClone(dashboardInstanceDto);
   invalid.scope = { type: "room" };
+  invalid.pages[0].widgets[1].binding.capability = "switch";
   invalid.pages[0].slug = "Not a slug";
   invalid.pages[0].widgets.push({
     ...invalid.pages[0].widgets[0],
@@ -81,10 +102,11 @@ test("reports structural, scope, uniqueness, and placement validation issues", (
 
   const issues = validateDashboardInstance(invalid);
   assert.ok(issues.some((issue) => issue.path === "$.scope.id"));
+  assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[1].binding.capability"));
   assert.ok(issues.some((issue) => issue.path === "$.pages[0].slug"));
-  assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[1].id"));
-  assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[1].state" && issue.message.includes("v1 contract")));
-  assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[1].placement"));
+  assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[2].id"));
+  assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[2].state" && issue.message.includes("v1 contract")));
+  assert.ok(issues.some((issue) => issue.path === "$.pages[0].widgets[2].placement"));
   assert.throws(() => parseDashboardInstance(invalid), DashboardValidationError);
 });
 
@@ -106,6 +128,72 @@ test("uses a versioned instance envelope and preserves correlation across reques
   assert.equal(response.payload.type, "dashboard.instance.snapshot");
   assert.equal(response.payload.instance.id, "main");
   assert.deepEqual(parseDashboardResponse(response), response);
+});
+
+test("adapts light actions and observes transient RGB light state", () => {
+  const state = { on: true, brightness: 72, rgb: { r: 255, g: 80, b: 10 } };
+  assert.deepEqual(lightStateFromDto(state), state);
+  assert.deepEqual(lightStateToDto(state), state);
+
+  for (const action of [
+    { type: "setOn", on: false },
+    { type: "setBrightness", brightness: 45 },
+    { type: "setRgb", rgb: { r: 10, g: 20, b: 30 } }
+  ]) {
+    const command = createDashboardLightActionCommand("trace-light", "main", "living-room-light", action);
+    assert.deepEqual(command.payload, {
+      type: "dashboard.light.action",
+      instanceId: "main",
+      widgetId: "living-room-light",
+      action
+    });
+    assert.equal("deviceId" in command.payload, false);
+    assert.deepEqual(lightActionFromDto(command.payload.action), action);
+    assert.deepEqual(lightActionToDto(action), action);
+    assert.deepEqual(parseDashboardRequest(command), command);
+    assert.deepEqual(parseDashboardLightActionCommand(command), command);
+  }
+
+  const event = createDashboardLightStateEvent("trace-light", "main", "living-room-light", state);
+  assert.deepEqual(event.payload, {
+    type: "dashboard.light.state",
+    instanceId: "main",
+    widgetId: "living-room-light",
+    state
+  });
+  assert.deepEqual(parseDashboardLightStateEvent(event), event);
+});
+
+test("rejects invalid light state and actions at the DTO boundary", () => {
+  assert.throws(
+    () => createDashboardLightStateEvent("trace-light", "main", "living-room-light", {
+      on: true,
+      brightness: 101,
+      rgb: { r: 256, g: 0, b: 0 }
+    }),
+    LightValidationError
+  );
+  assert.throws(
+    () => createDashboardLightActionCommand("trace-light", "main", "living-room-light", {
+      type: "setBrightness",
+      brightness: -1
+    }),
+    LightValidationError
+  );
+  assert.throws(
+    () => parseDashboardLightStateEvent({
+      contract: DASHBOARD_CONTRACT,
+      version: DASHBOARD_CONTRACT_VERSION,
+      correlationId: "trace-light",
+      payload: {
+        type: "dashboard.light.state",
+        instanceId: "main",
+        widgetId: "living-room-light",
+        state: { on: true, brightness: 50, rgb: { r: 0, g: 0, b: 300 } }
+      }
+    }),
+    DashboardValidationError
+  );
 });
 
 test("rejects an unsupported contract version at the client boundary", () => {

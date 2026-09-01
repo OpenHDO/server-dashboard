@@ -5,9 +5,18 @@ import {
   type DashboardInstanceScopeType,
   type DashboardValidationIssue,
   type DashboardWidget,
+  type DashboardWidgetSource,
   parseDashboardInstance,
   validateDashboardInstance as validateModelDashboardInstance
 } from "./model.js";
+import {
+  parseLightAction,
+  parseLightState,
+  type LightAction,
+  type LightState,
+  validateLightAction,
+  validateLightState
+} from "./light.js";
 
 export const DASHBOARD_CONTRACT = "openhdo.dashboard" as const;
 export const DASHBOARD_CONTRACT_VERSION = 1 as const;
@@ -45,13 +54,36 @@ export interface DashboardLayoutDto {
   readonly rowHeight: number;
 }
 
-export interface DashboardWidgetDto {
+interface DashboardWidgetDtoBase {
   readonly id: string;
   readonly title: string;
-  readonly kind: DashboardWidget["kind"];
   readonly placement: DashboardWidgetPlacementDto;
+}
+
+export interface DashboardValueWidgetDto extends DashboardWidgetDtoBase {
+  readonly kind: "value";
   readonly source: DashboardWidgetSourceDto;
 }
+
+export interface DashboardControlWidgetDto extends DashboardWidgetDtoBase {
+  readonly kind: "control";
+  readonly source: DashboardWidgetSourceDto;
+}
+
+export interface DashboardLightDeviceBindingDto {
+  readonly deviceId: string;
+  readonly capability: "light";
+}
+
+export interface DashboardLightWidgetDto extends DashboardWidgetDtoBase {
+  readonly kind: "light";
+  readonly binding: DashboardLightDeviceBindingDto;
+}
+
+export type DashboardWidgetDto =
+  | DashboardValueWidgetDto
+  | DashboardControlWidgetDto
+  | DashboardLightWidgetDto;
 
 export interface DashboardWidgetPlacementDto {
   readonly column: number;
@@ -61,10 +93,27 @@ export interface DashboardWidgetPlacementDto {
 }
 
 export interface DashboardWidgetSourceDto {
-  readonly type: DashboardWidget["source"]["type"];
+  readonly type: DashboardWidgetSource["type"];
   readonly id: string;
   readonly path?: string;
 }
+
+export interface DashboardLightRgbDto {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+export interface DashboardLightStateDto {
+  readonly on: boolean;
+  readonly brightness: number | null;
+  readonly rgb: DashboardLightRgbDto | null;
+}
+
+export type DashboardLightActionDto =
+  | { readonly type: "setOn"; readonly on: boolean }
+  | { readonly type: "setBrightness"; readonly brightness: number }
+  | { readonly type: "setRgb"; readonly rgb: DashboardLightRgbDto };
 
 export interface DashboardEnvelope<TPayload> {
   readonly contract: typeof DASHBOARD_CONTRACT;
@@ -79,7 +128,25 @@ export interface DashboardInstanceGetRequestPayload {
 }
 
 export type DashboardInstanceGetRequestDto = DashboardEnvelope<DashboardInstanceGetRequestPayload>;
-export type DashboardRequestDto = DashboardInstanceGetRequestDto;
+
+export interface DashboardLightActionCommandPayload {
+  readonly type: "dashboard.light.action";
+  readonly instanceId: string;
+  readonly widgetId: string;
+  readonly action: DashboardLightActionDto;
+}
+
+export type DashboardLightActionCommandDto = DashboardEnvelope<DashboardLightActionCommandPayload>;
+export type DashboardRequestDto = DashboardInstanceGetRequestDto | DashboardLightActionCommandDto;
+
+export interface DashboardLightStateEventPayload {
+  readonly type: "dashboard.light.state";
+  readonly instanceId: string;
+  readonly widgetId: string;
+  readonly state: DashboardLightStateDto;
+}
+
+export type DashboardLightStateEventDto = DashboardEnvelope<DashboardLightStateEventPayload>;
 
 export interface DashboardInstanceSnapshotPayload {
   readonly type: "dashboard.instance.snapshot";
@@ -116,30 +183,104 @@ function dashboardInstanceToDtoValue(instance: DashboardInstance): DashboardInst
       slug: page.slug,
       title: page.title,
       layout: { ...page.layout },
-      widgets: page.widgets.map((widget) => ({
-        id: widget.id,
-        title: widget.title,
-        kind: widget.kind,
-        placement: { ...widget.placement },
-        source: { ...widget.source }
-      }))
+      widgets: page.widgets.map(widgetToDto)
     }))
   };
+}
+
+function widgetToDto(widget: DashboardWidget): DashboardWidgetDto {
+  const base = {
+    id: widget.id,
+    title: widget.title,
+    placement: { ...widget.placement }
+  };
+  if (widget.kind === "light") {
+    return { ...base, kind: "light", binding: { ...widget.binding } };
+  }
+  return { ...base, kind: widget.kind, source: { ...widget.source } };
 }
 
 export function dashboardInstanceFromDto(input: unknown): DashboardInstance {
   return parseDashboardInstance(input);
 }
 
+/** Adapter from a wire state DTO to the client's typed, transient light state. */
+export function lightStateFromDto(input: unknown): LightState {
+  return parseLightState(input);
+}
+
+/** Adapter from a typed light action to its server-facing DTO shape. */
+export function lightActionToDto(action: LightAction): DashboardLightActionDto {
+  const value = parseLightAction(action);
+  if (value.type === "setOn") {
+    return { type: "setOn", on: value.on };
+  }
+  if (value.type === "setBrightness") {
+    return { type: "setBrightness", brightness: value.brightness };
+  }
+  return { type: "setRgb", rgb: { ...value.rgb } };
+}
+
+/** Adapter from a client-facing action DTO to a typed server command intent. */
+export function lightActionFromDto(input: unknown): LightAction {
+  return parseLightAction(input);
+}
+
+export function lightStateToDto(state: LightState): DashboardLightStateDto {
+  const value = parseLightState(state);
+  return {
+    on: value.on,
+    brightness: value.brightness,
+    rgb: value.rgb === null ? null : { ...value.rgb }
+  };
+}
+
 export function createDashboardInstanceGetRequest(
   correlationId: string,
   instanceId: string
 ): DashboardInstanceGetRequestDto {
-  return parseDashboardRequest({
+  const request = parseDashboardRequest({
     contract: DASHBOARD_CONTRACT,
     version: DASHBOARD_CONTRACT_VERSION,
     correlationId,
     payload: { type: "dashboard.instance.get", instanceId }
+  });
+  if (request.payload.type !== "dashboard.instance.get") {
+    throw new Error("Unexpected dashboard request type");
+  }
+  return request as DashboardInstanceGetRequestDto;
+}
+
+export function createDashboardLightActionCommand(
+  correlationId: string,
+  instanceId: string,
+  widgetId: string,
+  action: LightAction
+): DashboardLightActionCommandDto {
+  return parseDashboardLightActionCommand({
+    contract: DASHBOARD_CONTRACT,
+    version: DASHBOARD_CONTRACT_VERSION,
+    correlationId,
+    payload: {
+      type: "dashboard.light.action",
+      instanceId,
+      widgetId,
+      action: lightActionToDto(action)
+    }
+  });
+}
+
+export function createDashboardLightStateEvent(
+  correlationId: string,
+  instanceId: string,
+  widgetId: string,
+  state: LightState
+): DashboardLightStateEventDto {
+  return parseDashboardLightStateEvent({
+    contract: DASHBOARD_CONTRACT,
+    version: DASHBOARD_CONTRACT_VERSION,
+    correlationId,
+    payload: { type: "dashboard.light.state", instanceId, widgetId, state: lightStateToDto(state) }
   });
 }
 
@@ -165,22 +306,107 @@ export function parseDashboardRequest(input: unknown): DashboardRequestDto {
   const payload = envelope.payload;
   if (!isRecord(payload)) {
     issues.push({ path: "$.payload", message: "must be an object" });
-  } else {
+  } else if (payload.type === "dashboard.instance.get") {
     rejectUnknownKeys(payload, ["type", "instanceId"], "$.payload", issues);
-    if (payload.type !== "dashboard.instance.get") {
-      issues.push({ path: "$.payload.type", message: "must be dashboard.instance.get" });
-    }
     requiredString(payload.instanceId, "$.payload.instanceId", issues);
+  } else if (payload.type === "dashboard.light.action") {
+    validateLightActionCommandPayload(payload, "$.payload", issues);
+  } else {
+    issues.push({ path: "$.payload.type", message: "must be dashboard.instance.get or dashboard.light.action" });
   }
   if (issues.length > 0) {
     throw new DashboardValidationError(issues);
   }
 
   const payloadValue = payload as Record<string, unknown>;
+  if (payloadValue.type === "dashboard.light.action") {
+    return {
+      ...envelope,
+      payload: {
+        type: "dashboard.light.action",
+        instanceId: payloadValue.instanceId as string,
+        widgetId: payloadValue.widgetId as string,
+        action: lightActionToDto(parseLightAction(payloadValue.action))
+      }
+    };
+  }
   return {
     ...envelope,
     payload: { type: "dashboard.instance.get", instanceId: payloadValue.instanceId as string }
   };
+}
+
+export function parseDashboardLightActionCommand(input: unknown): DashboardLightActionCommandDto {
+  const issues: DashboardValidationIssue[] = [];
+  const envelope = validateEnvelope(input, issues);
+  if (envelope === undefined) {
+    throw new DashboardValidationError(issues);
+  }
+  if (!isRecord(envelope.payload)) {
+    issues.push({ path: "$.payload", message: "must be an object" });
+  } else {
+    validateLightActionCommandPayload(envelope.payload, "$.payload", issues);
+  }
+  if (issues.length > 0) {
+    throw new DashboardValidationError(issues);
+  }
+  const payload = envelope.payload as Record<string, unknown>;
+  return {
+    ...envelope,
+    payload: {
+      type: "dashboard.light.action",
+      instanceId: payload.instanceId as string,
+      widgetId: payload.widgetId as string,
+      action: lightActionToDto(parseLightAction(payload.action))
+    }
+  };
+}
+
+export function parseDashboardLightStateEvent(input: unknown): DashboardLightStateEventDto {
+  const issues: DashboardValidationIssue[] = [];
+  const envelope = validateEnvelope(input, issues);
+  if (envelope === undefined) {
+    throw new DashboardValidationError(issues);
+  }
+  if (!isRecord(envelope.payload)) {
+    issues.push({ path: "$.payload", message: "must be an object" });
+  } else {
+    const payload = envelope.payload;
+    rejectUnknownKeys(payload, ["type", "instanceId", "widgetId", "state"], "$.payload", issues);
+    if (payload.type !== "dashboard.light.state") {
+      issues.push({ path: "$.payload.type", message: "must be dashboard.light.state" });
+    }
+    requiredString(payload.instanceId, "$.payload.instanceId", issues);
+    requiredString(payload.widgetId, "$.payload.widgetId", issues);
+    issues.push(...validateLightState(payload.state, "$.payload.state"));
+  }
+  if (issues.length > 0) {
+    throw new DashboardValidationError(issues);
+  }
+  const payload = envelope.payload as Record<string, unknown>;
+  return {
+    ...envelope,
+    payload: {
+      type: "dashboard.light.state",
+      instanceId: payload.instanceId as string,
+      widgetId: payload.widgetId as string,
+      state: lightStateToDto(parseLightState(payload.state))
+    }
+  };
+}
+
+function validateLightActionCommandPayload(
+  payload: Record<string, unknown>,
+  path: string,
+  issues: DashboardValidationIssue[]
+): void {
+  rejectUnknownKeys(payload, ["type", "instanceId", "widgetId", "action"], path, issues);
+  if (payload.type !== "dashboard.light.action") {
+    issues.push({ path: `${path}.type`, message: "must be dashboard.light.action" });
+  }
+  requiredString(payload.instanceId, `${path}.instanceId`, issues);
+  requiredString(payload.widgetId, `${path}.widgetId`, issues);
+  issues.push(...validateLightAction(payload.action, `${path}.action`));
 }
 
 export function parseDashboardResponse(input: unknown): DashboardResponseDto {

@@ -28,6 +28,18 @@ envelope with a correlation ID for request/reply tracing:
 - `dashboard.instance.snapshot` returns its client configuration and pages; and
 - `dashboard.error` reports a validated failure without exposing server state.
 
+## Light widget
+
+`kind: "light"` widgets bind to a server-owned device with
+`{ deviceId, capability: "light" }`. The client-facing light model supports
+`on`, brightness as a `0..100` percentage, and RGB channels as `0..255`.
+
+The client observes transient state through `dashboard.light.state` events and
+sends `dashboard.light.action` commands for `setOn`, `setBrightness`, or
+`setRgb`. Commands carry `instanceId` and `widgetId`, not a device ID; the host
+server resolves the configured binding and owns authorization and execution.
+Light state is never stored in a `DashboardInstance`.
+
 See the [project architecture](https://github.com/OpenHDO/about/blob/main/ARCHITECTURE.md)
 and [server contracts](https://github.com/OpenHDO/server/tree/master/contracts/v1)
 for the host-side state and orchestration boundary.

@@ -1,3 +1,9 @@
+import {
+  parseLightDeviceBinding,
+  type LightDeviceBinding,
+  validateLightDeviceBinding
+} from "./light.js";
+
 export const DASHBOARD_INSTANCE_SCOPES = ["global", "panel", "room", "setup"] as const;
 export type DashboardInstanceScopeType = (typeof DASHBOARD_INSTANCE_SCOPES)[number];
 
@@ -7,7 +13,7 @@ export type DashboardRenderMode = (typeof DASHBOARD_RENDER_MODES)[number];
 export const DASHBOARD_THEMES = ["system", "light", "dark"] as const;
 export type DashboardTheme = (typeof DASHBOARD_THEMES)[number];
 
-export const WIDGET_KINDS = ["value", "control"] as const;
+export const WIDGET_KINDS = ["value", "control", "light"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 export const WIDGET_SOURCES = ["device", "flow"] as const;
@@ -45,14 +51,31 @@ export interface DashboardLayout {
   readonly rowHeight: number;
 }
 
-export interface DashboardWidget {
+interface DashboardWidgetBase {
   readonly id: string;
   readonly title: string;
-  readonly kind: WidgetKind;
   readonly placement: DashboardWidgetPlacement;
+}
+
+export interface DashboardValueWidget extends DashboardWidgetBase {
+  readonly kind: "value";
   /** A reference to server-owned data; this module never stores its current state. */
   readonly source: DashboardWidgetSource;
 }
+
+export interface DashboardControlWidget extends DashboardWidgetBase {
+  readonly kind: "control";
+  /** A reference to server-owned data; this module never stores its current state. */
+  readonly source: DashboardWidgetSource;
+}
+
+export interface DashboardLightWidget extends DashboardWidgetBase {
+  readonly kind: "light";
+  /** The target reference is configuration; observed light state stays transient. */
+  readonly binding: LightDeviceBinding;
+}
+
+export type DashboardWidget = DashboardValueWidget | DashboardControlWidget | DashboardLightWidget;
 
 export interface DashboardWidgetPlacement {
   readonly column: number;
@@ -164,19 +187,29 @@ export function parseDashboardInstance(input: unknown): DashboardInstance {
         columns: (page.layout as Record<string, unknown>).columns as number,
         rowHeight: (page.layout as Record<string, unknown>).rowHeight as number
       },
-      widgets: (page.widgets as readonly Record<string, unknown>[]).map((widget) => ({
-        id: widget.id as string,
-        title: widget.title as string,
-        kind: widget.kind as WidgetKind,
-        placement: {
-          column: (widget.placement as Record<string, unknown>).column as number,
-          row: (widget.placement as Record<string, unknown>).row as number,
-          columnSpan: (widget.placement as Record<string, unknown>).columnSpan as number,
-          rowSpan: (widget.placement as Record<string, unknown>).rowSpan as number
-        },
-        source: toSource(widget.source as Record<string, unknown>)
-      }))
+      widgets: (page.widgets as readonly Record<string, unknown>[]).map(toWidget)
     }))
+  };
+}
+
+function toWidget(widget: Record<string, unknown>): DashboardWidget {
+  const base = {
+    id: widget.id as string,
+    title: widget.title as string,
+    placement: {
+      column: (widget.placement as Record<string, unknown>).column as number,
+      row: (widget.placement as Record<string, unknown>).row as number,
+      columnSpan: (widget.placement as Record<string, unknown>).columnSpan as number,
+      rowSpan: (widget.placement as Record<string, unknown>).rowSpan as number
+    }
+  };
+  if (widget.kind === "light") {
+    return { ...base, kind: "light", binding: parseLightDeviceBinding(widget.binding) };
+  }
+  return {
+    ...base,
+    kind: widget.kind as "value" | "control",
+    source: toSource(widget.source as Record<string, unknown>)
   };
 }
 
@@ -245,10 +278,17 @@ function validateWidgets(
       issues.push({ path: widgetPath, message: "must be an object" });
       continue;
     }
-    rejectUnknownKeys(widget, ["id", "title", "kind", "placement", "source"], widgetPath, issues);
+    const kind = enumValue(widget.kind, WIDGET_KINDS, `${widgetPath}.kind`, issues);
+    rejectUnknownKeys(
+      widget,
+      kind === "light"
+        ? ["id", "title", "kind", "placement", "binding"]
+        : ["id", "title", "kind", "placement", "source"],
+      widgetPath,
+      issues
+    );
     const widgetId = requiredString(widget.id, `${widgetPath}.id`, MAX_ID_LENGTH, issues);
     requiredString(widget.title, `${widgetPath}.title`, MAX_TITLE_LENGTH, issues);
-    enumValue(widget.kind, WIDGET_KINDS, `${widgetPath}.kind`, issues);
     if (widgetId !== undefined) {
       if (widgetIds.has(widgetId)) {
         issues.push({ path: `${widgetPath}.id`, message: "must be unique within the page" });
@@ -258,7 +298,11 @@ function validateWidgets(
     }
 
     validatePlacement(widget.placement, `${widgetPath}.placement`, columns, issues);
-    validateSource(widget.source, `${widgetPath}.source`, issues);
+    if (kind === "light") {
+      issues.push(...validateLightDeviceBinding(widget.binding, `${widgetPath}.binding`));
+    } else if (kind !== undefined) {
+      validateSource(widget.source, `${widgetPath}.source`, issues);
+    }
   }
 }
 

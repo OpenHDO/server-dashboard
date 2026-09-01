@@ -12,8 +12,14 @@ automation execution, authentication, or a second persistence model.
 
 ## Status
 
-Repository scaffold. The first implementation should stabilize the dashboard
-contract against the server API before adding a large widget library.
+The repository now contains the versioned `v1` contract and a small validated
+model. Build with `npm run build` and run the focused boundary checks with
+`npm test`.
+
+The public entry point is `src/index.ts`. It exposes pages, grid layouts, and
+widgets whose `source` is only a device/flow reference; current device state
+stays in the server-owned device module. Wire messages use a versioned envelope
+with a correlation ID for request/reply tracing.
 
 See the [project architecture](https://github.com/OpenHDO/about/blob/main/ARCHITECTURE.md)
 and [server contracts](https://github.com/OpenHDO/server/tree/master/contracts/v1).

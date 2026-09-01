@@ -227,6 +227,9 @@ test("accepts a validated error reply using the same correlation envelope", () =
 test("exports a reusable React component surface with instance-scoped primitives", () => {
   assert.equal(typeof Dashboard, "function");
   assert.equal(DashboardInstance, Dashboard);
+  assert.equal(typeof DashboardShell, "function");
+  assert.equal(typeof DashboardGrid, "function");
+  assert.equal(typeof DashboardWidgetFrame, "function");
   assert.equal(typeof LightWidget, "function");
 
   const mainElement = createElement(Dashboard, { instance: parseDashboardInstance(dashboardInstanceDto) });
@@ -246,24 +249,36 @@ test("exports a reusable React component surface with instance-scoped primitives
     renderMode: "wall-panel",
     scope: { type: "panel", id: "hallway-panel" },
     theme: "dark",
-    title: "Hallway wall panel"
+    title: "Hallway wall panel",
+    className: "host-shell"
   });
   assert.equal(shell.type, "section");
+  assert.match(shell.props.className, /\bmin-h-screen\b/);
+  assert.match(shell.props.className, /\bbg-background\b/);
+  assert.match(shell.props.className, /\bhost-shell\b/);
   assert.equal(shell.props["data-dashboard-instance"], "hallway-wall-panel");
   assert.equal(shell.props["data-dashboard-scope"], "panel:hallway-panel");
 
   const grid = DashboardGrid({
     children: "widgets",
-    layout: { columns: 12, rowHeight: 32 }
+    layout: { columns: 12, rowHeight: 32 },
+    className: "host-grid"
   });
   assert.equal(grid.props["data-dashboard-grid"], true);
+  assert.match(grid.props.className, /\bgrid\b/);
+  assert.match(grid.props.className, /\bgap-3\b/);
+  assert.match(grid.props.className, /\bhost-grid\b/);
   assert.equal(grid.props.style.gridTemplateColumns, "repeat(12, minmax(0, 1fr))");
 
   const frame = DashboardWidgetFrame({
     children: "widget",
     placement: { column: 4, row: 2, columnSpan: 3, rowSpan: 2 },
-    title: "Light"
+    title: "Light",
+    className: "host-frame"
   });
+  assert.match(frame.props.className, /\brounded-xl\b/);
+  assert.match(frame.props.className, /\bbg-card\b/);
+  assert.match(frame.props.className, /\bhost-frame\b/);
   assert.equal(frame.props.style.gridColumn, "5 / span 3");
   assert.equal(frame.props.style.gridRow, "3 / span 2");
 });

@@ -13,7 +13,9 @@ widgets. Widget sources are references to server-owned devices or flows.
 
 The server owns canonical device state, settings/admin, authentication,
 authorization, persistence, and orchestration/execution. This module does not
-duplicate those concerns or embed a UI component library.
+duplicate those concerns or embed a UI component library. It exports styled
+React primitives while leaving the host in control of its Tailwind setup,
+theme tokens, and application composition.
 
 ## Status
 
@@ -54,6 +56,14 @@ The package exports `Dashboard`/`DashboardInstance` (also
 `Dashboard` receives one `instance` prop, so each mounted dashboard keeps its
 own page selection and instance scope. Mounting several instances does not
 require a registry or singleton.
+
+The component surface is className-first: the exported primitives include
+small default utility classes and shadcn-style card, button, input, and status
+variants built from semantic Tailwind tokens such as `bg-background`,
+`bg-card`, and `text-foreground`. Hosts can extend those defaults with
+`className` and provide the corresponding theme tokens. The package does not
+bundle a Tailwind runtime, Tailwind config, or another UI dependency; inline
+styles are kept for instance-specific grid geometry.
 
 Light rendering receives a `LightWidgetAdapter` (also named
 `LightWidgetTransport`) from the host:

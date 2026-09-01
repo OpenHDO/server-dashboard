@@ -20,6 +20,35 @@ import type {
   LightView
 } from "./v1/server-light.js";
 
+type ClassNameValue = string | false | null | undefined;
+
+const SHELL_CLASS_NAME = "box-border min-h-screen w-full bg-background text-foreground antialiased";
+const GRID_CLASS_NAME = "grid gap-3";
+const WIDGET_FRAME_CLASS_NAME = "group relative overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm";
+const LIGHT_WIDGET_CLASS_NAME = "flex flex-col gap-4 p-4";
+const BUTTON_BASE_CLASS_NAME =
+  "inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+const BUTTON_VARIANT_CLASS_NAMES = {
+  default: "bg-primary text-primary-foreground hover:bg-primary/90",
+  outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+} as const;
+const INPUT_CLASS_NAME =
+  "h-10 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+const SYNC_STATUS_CLASS_NAMES = {
+  loading: "border-border bg-muted text-muted-foreground",
+  syncing: "border-primary/30 bg-primary/10 text-primary",
+  synced: "border-primary/30 bg-primary/10 text-primary",
+  error: "border-destructive/30 bg-destructive/10 text-destructive"
+} as const;
+
+function cn(...values: ClassNameValue[]): string {
+  return values.filter((value): value is string => typeof value === "string" && value.length > 0).join(" ");
+}
+
+function buttonClassName(variant: keyof typeof BUTTON_VARIANT_CLASS_NAMES, active = false): string {
+  return cn(BUTTON_BASE_CLASS_NAME, BUTTON_VARIANT_CLASS_NAMES[variant], active && "bg-accent text-accent-foreground");
+}
+
 export interface LightWidgetAdapter {
   getLight(context: LightWidgetContext): Promise<LightView>;
   subscribeLight(
@@ -61,17 +90,14 @@ export function DashboardShell({
 }: DashboardShellProps) {
   const scopeValue = scope.type === "global" ? "global" : `${scope.type}:${scope.id}`;
   const shellStyle: CSSProperties = {
-    boxSizing: "border-box",
     colorScheme: theme === "system" ? "light dark" : theme,
-    minHeight: "100%",
-    padding: "1rem",
     ...style
   };
 
   return (
     <section
       aria-label={title}
-      className={className}
+      className={cn(SHELL_CLASS_NAME, className)}
       data-dashboard-instance={instanceId}
       data-dashboard-render-mode={renderMode}
       data-dashboard-scope={scopeValue}
@@ -119,13 +145,14 @@ export function DashboardInstanceView({
       {...(className === undefined ? {} : { className })}
       {...(style === undefined ? {} : { style })}
     >
-      <header>
-        <h1>{instance.name}</h1>
+      <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-3xl font-semibold tracking-tight">{instance.name}</h1>
         {instance.client.showPageNavigation && instance.pages.length > 1 ? (
-          <nav aria-label={`${instance.name} pages`}>
+          <nav aria-label={`${instance.name} pages`} className="flex flex-wrap gap-2">
             {instance.pages.map((candidate) => (
               <button
                 aria-current={candidate.id === page.id ? "page" : undefined}
+                className={buttonClassName("outline", candidate.id === page.id)}
                 key={candidate.id}
                 onClick={() => setPageId(candidate.id)}
                 type="button"
@@ -162,8 +189,8 @@ function DashboardPageView({
   renderWidget
 }: DashboardPageViewProps) {
   return (
-    <main aria-label={page.title}>
-      <h2>{page.title}</h2>
+    <main aria-label={page.title} className="space-y-4">
+      <h2 className="text-xl font-semibold tracking-tight">{page.title}</h2>
       <DashboardGrid layout={page.layout}>
         {page.widgets.map((widget) => (
           <DashboardWidgetFrame key={widget.id} placement={widget.placement} title={widget.title}>
@@ -197,12 +224,11 @@ export interface DashboardGridProps {
 export function DashboardGrid({ layout, children, className, style }: DashboardGridProps) {
   return (
     <div
-      className={className}
+      className={cn(GRID_CLASS_NAME, className)}
       data-dashboard-grid
       role="list"
       style={{
         display: "grid",
-        gap: "0.75rem",
         gridAutoRows: `${layout.rowHeight}px`,
         gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
         ...style
@@ -231,7 +257,7 @@ export function DashboardWidgetFrame({
   return (
     <article
       aria-label={title}
-      className={className}
+      className={cn(WIDGET_FRAME_CLASS_NAME, className)}
       role="listitem"
       style={{
         gridColumn: `${placement.column + 1} / span ${placement.columnSpan}`,
@@ -350,47 +376,65 @@ export function LightWidget({
   const colorSupported = light?.capability.color_modes?.some((mode) => mode === "RGB" || mode === "RGBW") ?? false;
 
   return (
-    <section aria-label={title} className={className} data-dashboard-widget="light" style={style}>
-      <header>
-        <h3>{light?.name ?? title}</h3>
-        <output aria-live="polite">{state === null ? "Unavailable" : state.power ? "On" : "Off"}</output>
+    <section aria-label={title} className={cn(LIGHT_WIDGET_CLASS_NAME, className)} data-dashboard-widget="light" style={style}>
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate font-medium">{light?.name ?? title}</h3>
+          <p className="text-sm text-muted-foreground">Light binding: {light?.light_id ?? binding.deviceId}</p>
+        </div>
+        <output
+          aria-live="polite"
+          className="shrink-0 rounded-full border px-2 py-1 text-xs font-medium"
+        >
+          {state === null ? "Unavailable" : state.power ? "On" : "Off"}
+        </output>
       </header>
-      <p>Light binding: {light?.light_id ?? binding.deviceId}</p>
-      <p aria-live="polite">{syncStatus === "loading" ? "Loading" : syncStatus === "syncing" ? "Syncing" : syncStatus === "error" ? "Error" : "Synced"}</p>
-      {state !== null && light?.capability.power ? (
-      <button
-        aria-pressed={state.power}
-        onClick={() => send({ type: "power", power: !state.power })}
-        type="button"
+      <p
+        aria-busy={syncStatus === "loading" || syncStatus === "syncing"}
+        aria-live="polite"
+        className={cn("w-fit rounded-full border px-2 py-1 text-xs font-medium", SYNC_STATUS_CLASS_NAMES[syncStatus])}
+        data-dashboard-sync-status={syncStatus}
       >
-        {state.power ? "Turn off" : "Turn on"}
-      </button>
+        {syncStatus === "loading" ? "Loading" : syncStatus === "syncing" ? "Syncing" : syncStatus === "error" ? "Error" : "Synced"}
+      </p>
+      {state !== null && light?.capability.power ? (
+        <button
+          aria-pressed={state.power}
+          className={buttonClassName("default")}
+          onClick={() => send({ type: "power", power: !state.power })}
+          type="button"
+        >
+          {state.power ? "Turn off" : "Turn on"}
+        </button>
       ) : null}
       {state !== null && light?.capability.brightness ? (
-      <label>
-        Brightness: <output>{state.brightness} / {light.capability.brightness.max}</output>
-        <input
-          max={light.capability.brightness.max}
-          min={light.capability.brightness.min}
-          onChange={(event) => send({ type: "brightness", brightness: Number(event.currentTarget.value) })}
-          type="range"
-          value={state.brightness}
-        />
-      </label>
+        <label className="grid gap-2 text-sm font-medium">
+          <span>Brightness: <output>{state.brightness} / {light.capability.brightness.max}</output></span>
+          <input
+            className="w-full accent-primary"
+            max={light.capability.brightness.max}
+            min={light.capability.brightness.min}
+            onChange={(event) => send({ type: "brightness", brightness: Number(event.currentTarget.value) })}
+            type="range"
+            value={state.brightness}
+          />
+        </label>
       ) : null}
-      {state !== null && colorSupported ? <fieldset>
-        <legend>RGB</legend>
+      {state !== null && colorSupported ? <fieldset className="grid gap-3 rounded-md border p-3">
+        <legend className="text-sm font-medium">RGB</legend>
         <input
           aria-label="RGB color picker"
+          className="h-10 w-16 cursor-pointer rounded-md border border-input bg-background p-1"
           onChange={(event) => send({ type: "rgb_color", rgb_color: hexToRgb(event.currentTarget.value) })}
           type="color"
           value={rgbToHex(state.rgb_color)}
         />
         {(["r", "g", "b"] as const).map((channel) => (
-          <label key={channel}>
+          <label className="grid gap-1.5 text-sm font-medium" key={channel}>
             {channel.toUpperCase()}
             <input
               aria-label={`${channel} channel, 0 to 255`}
+              className={cn(INPUT_CLASS_NAME, "w-20")}
               max={255}
               min={0}
               onChange={(event) => changeRgb(channel, event)}
@@ -400,9 +444,9 @@ export function LightWidget({
           </label>
         ))}
       </fieldset> : null}
-      {state === null ? <p>Light state unavailable</p> : null}
-      {state !== null ? <p>State revision {state.state_revision}</p> : null}
-      {error !== null ? <p role="alert">{error}</p> : null}
+      {state === null ? <p className="text-sm text-muted-foreground">Light state unavailable</p> : null}
+      {state !== null ? <p className="text-xs text-muted-foreground">State revision {state.state_revision}</p> : null}
+      {error !== null ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
     </section>
   );
 }

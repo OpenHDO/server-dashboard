@@ -11,9 +11,9 @@ The client-dashboard module exposes a small `v1` contract consisting of:
 - request/reply DTO envelopes with a contract version and correlation ID.
 
 Instance scopes cover global/main, embedded panel, room, and setup dashboards.
-The public entry point is `src/index.ts`, which currently re-exports `v1`.
-Future incompatible changes should be introduced under a new versioned module
-instead of changing `v1` in place.
+The public entry point is `src/index.ts`, which re-exports `v1` and the
+reusable React component surface. Future incompatible wire changes should be
+introduced under a new versioned module instead of changing `v1` in place.
 
 ## Rationale
 

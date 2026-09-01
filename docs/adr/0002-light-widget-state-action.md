@@ -30,3 +30,10 @@ Brightness is represented as a percentage (`0..100`), RGB channels as integers
 (`0..255`), and `null` means that a state value is unavailable or unsupported.
 Unsupported capabilities are rejected by the server when an action is
 executed, rather than inferred or simulated by this module.
+
+The React `LightWidget` consumes an injected `LightWidgetAdapter`. The adapter
+is the only observer/command boundary used by the component: it loads and
+subscribes to canonical v1 `LightView` values for the instance/widget binding,
+then sends typed server light commands. A host can map that small interface to
+the canonical v1 events and command results without leaking envelope or
+transport details into the widget.

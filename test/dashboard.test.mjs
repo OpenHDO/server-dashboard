@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
 import {
   DASHBOARD_CONTRACT,
   DASHBOARD_CONTRACT_VERSION,
+  Dashboard,
+  DashboardGrid,
+  DashboardInstance,
+  DashboardShell,
   DashboardValidationError,
+  DashboardWidgetFrame,
   LightValidationError,
+  LightWidget,
   createDashboardInstanceGetRequest,
   createDashboardInstanceSnapshotResponse,
   createDashboardLightActionCommand,
@@ -215,4 +222,48 @@ test("accepts a validated error reply using the same correlation envelope", () =
   };
 
   assert.deepEqual(parseDashboardResponse(errorReply), errorReply);
+});
+
+test("exports a reusable React component surface with instance-scoped primitives", () => {
+  assert.equal(typeof Dashboard, "function");
+  assert.equal(DashboardInstance, Dashboard);
+  assert.equal(typeof LightWidget, "function");
+
+  const mainElement = createElement(Dashboard, { instance: parseDashboardInstance(dashboardInstanceDto) });
+  const panelElement = createElement(Dashboard, {
+    instance: parseDashboardInstance({
+      ...dashboardInstanceDto,
+      id: "hallway-wall-panel",
+      scope: { type: "panel", id: "hallway-panel" }
+    })
+  });
+  assert.equal(mainElement.props.instance.id, "main");
+  assert.deepEqual(panelElement.props.instance.scope, { type: "panel", id: "hallway-panel" });
+
+  const shell = DashboardShell({
+    children: "content",
+    instanceId: "hallway-wall-panel",
+    renderMode: "wall-panel",
+    scope: { type: "panel", id: "hallway-panel" },
+    theme: "dark",
+    title: "Hallway wall panel"
+  });
+  assert.equal(shell.type, "section");
+  assert.equal(shell.props["data-dashboard-instance"], "hallway-wall-panel");
+  assert.equal(shell.props["data-dashboard-scope"], "panel:hallway-panel");
+
+  const grid = DashboardGrid({
+    children: "widgets",
+    layout: { columns: 12, rowHeight: 32 }
+  });
+  assert.equal(grid.props["data-dashboard-grid"], true);
+  assert.equal(grid.props.style.gridTemplateColumns, "repeat(12, minmax(0, 1fr))");
+
+  const frame = DashboardWidgetFrame({
+    children: "widget",
+    placement: { column: 4, row: 2, columnSpan: 3, rowSpan: 2 },
+    title: "Light"
+  });
+  assert.equal(frame.props.style.gridColumn, "5 / span 3");
+  assert.equal(frame.props.style.gridRow, "3 / span 2");
 });

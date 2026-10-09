@@ -1,5 +1,21 @@
 # OpenHDO Client Dashboard
 
+## HDO plugin v1
+
+This repository now ships an optional HDO plugin, not a built-in module. Its
+`hdo.json`, `plugin.py` and `web/plugin.js` are ready to package with the separate
+[plugin CLI](https://github.com/OpenHDO/plugin-cli):
+
+```sh
+hdop validate .
+hdop pack . --out server-dashboard.hdop
+```
+
+Install the archive in HDO's Plugins tab and enable it. The host provides the
+Python SDK, authentication, device/room services, automatic lifecycle cleanup
+and private persistent storage in `/data/plugin-data/<plugin-id>`.
+
+
 `server-dashboard` is a reusable client-dashboard module for configurable
 dashboard instances. A host can serve independent instances such as the main
 dashboard, an embedded wall panel, a room dashboard, or a setup-specific
@@ -92,3 +108,11 @@ The package has no app import or platform runtime integration.
 See the [project architecture](https://github.com/OpenHDO/about/blob/main/ARCHITECTURE.md)
 and [server contracts](https://github.com/OpenHDO/server/tree/master/contracts/v1)
 for the host-side state and orchestration boundary.
+
+## Plugin dashboard
+
+The plugin tab selects imported devices and persists the layout through its
+`layout` API. It renders registered device models or a compact default card.
+Plugin widgets are referenced by `{type:"plugin.id:widget",config:{...}}` in the
+layout's `widgets` array. Live state is fetched from HDO, and commands use its
+validated action API. Existing v1 React components remain library exports.

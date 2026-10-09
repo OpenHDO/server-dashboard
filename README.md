@@ -116,3 +116,23 @@ The plugin tab selects imported devices and persists the layout through its
 Plugin widgets are referenced by `{type:"plugin.id:widget",config:{...}}` in the
 layout's `widgets` array. Live state is fetched from HDO, and commands use its
 validated action API. Existing v1 React components remain library exports.
+
+## Repository and releases
+
+One plugin = one repository, with exactly one root `hdo.json`. Contributions
+and both runtimes belong to that plugin; dependencies are separate plugins in
+separate repositories. Shared libraries and the SDK are not plugins.
+
+The `Plugin CI and release` workflow uses HDO CLI v1.1.0 to build, validate and
+package the root plugin. Pull requests and pushes create a downloadable Actions
+artifact. To publish a GitHub Release, update `hdo.json` and push a matching tag:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The tag must match the manifest version. Releases contain `<id>-<version>.hdop`
+and its SHA-256 checksum; prerelease versions produce prereleases. Publishing
+uses GitHub's built-in token; no additional repository secrets are needed.
+Release creation runs only for tag pushes, not pull requests or manual reruns.

@@ -27,16 +27,12 @@ export function activate(host) {
         context.auth.user?.role === "admin" && h("button", {style:button,onClick:() => editing ? void save() : setEditing(true)}, editing ? "Save" : "Edit")),
       editing && h("div", {style:{display:"flex",flexWrap:"wrap",gap:12,marginBottom:12}}, devices.map((device) => h("label", {key:device.id}, h("input", {type:"checkbox", checked:layout.devices.includes(device.id), onChange:(event) => setLayout({...layout,devices:event.target.checked ? [...layout.devices,device.id] : layout.devices.filter((id) => id !== device.id)})}), " ", device.name))),
       h("div", {style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}, devices.filter((device) => layout.devices.includes(device.id)).map((device) => {
-        const Renderer = host.extensions("deviceModels").find((model) => model.kind === device.kind)?.component;
-        if (Renderer) return h(Renderer, {key:device.id,device,context});
-        return h("article", {key:device.id,style:{padding:16,border:"1px solid #404040",borderRadius:10}}, h("h2", {style:{fontSize:18,fontWeight:600}}, device.name),
-          h("div", {style:{fontSize:12,opacity:.6,margin:"4px 0 12px"}}, device.area),
-          device.controls.filter((control) => control.type === "Boolean").map((control) => h("button", {key:control.code,style:button,disabled:!device.available,onClick:async () => {
-            const response = await context.api.request(`/api/v1/devices/${device.id}/actions`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:control.code,value:!device.state[control.code]})});
-            if (!response.ok) host.notify("error", "Device command failed");
-            else { const updated = await response.json(); setDevices((current) => current.map((item) => item.id === updated.id ? updated : item)); }
-          }}, `${control.name}: ${device.state[control.code] ? "On" : "Off"}`)),
-          Object.entries(device.state).filter(([,value]) => typeof value !== "boolean").map(([key,value]) => h("div", {key,style:{marginTop:8}}, `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`)));
+        const Renderer = host.extensions("deviceModels").find((model) => model.kind === device.kind)?.component ?? host.ui.DeviceCard;
+        return h(Renderer, {key:device.id,device,context,pending:false,edit:()=>context.navigate("devices"),send:async (control,value) => {
+          const response = await context.api.request(`/api/v1/devices/${device.id}/actions`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:control.code,value})});
+          if (!response.ok) { host.notify("error", "Device command failed"); return false; }
+          const updated = await response.json(); setDevices((current) => current.map((item) => item.id === updated.id ? updated : item)); return true;
+        }});
       }), (layout.widgets ?? []).map((widget, index) => {
         const Component = host.extensions("widgets").find((item) => item.id === widget.type)?.component;
         return Component ? h(Component, {key:`widget:${index}`,config:widget.config,devices,context}) : null;

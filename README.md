@@ -112,7 +112,7 @@ for the host-side state and orchestration boundary.
 ## Plugin dashboard
 
 The plugin tab selects imported devices and persists the layout through its
-`layout` API. It renders registered device models or a compact default card.
+`layout` API. It renders registered device models or the standard HDO device card.
 Plugin widgets are referenced by `{type:"plugin.id:widget",config:{...}}` in the
 layout's `widgets` array. Live state is fetched from HDO, and commands use its
 validated action API. Existing v1 React components remain library exports.
